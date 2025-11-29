@@ -6,50 +6,86 @@ const { MongoClient } = require('mongodb');
 const dns = require('dns');
 const urlparser = require('url');
 
-const client = new MongoClient(process.env.DB_URL)
-const db = client.db("urlshortner")
-const urls = db.collection("urls")
+// Mongo connection
+const client = new MongoClient(process.env.DB_URL);
 
-// Basic Configuration
-const port = process.env.PORT || 3000;
+async function main() {
+  await client.connect();
+  const db = client.db("urlshortner");
+  const urls = db.collection("urls");
 
-app.use(cors());
-app.use(express.json())
-app.use(express.urlencoded({extended: true}))
+  const port = process.env.PORT || 3000;
 
-app.use('/public', express.static(`${process.cwd()}/public`));
+  app.use(cors());
+  app.use(express.json());
+  app.use(express.urlencoded({ extended: true }));
 
-app.get('/', function(req, res) {
-  res.sendFile(process.cwd() + '/views/index.html');
-});
+  app.use('/public', express.static(`${process.cwd()}/public`));
 
-// Your first API endpoint
-app.post('/api/shorturl', function(req, res) {
+  app.get('/', (req, res) => {
+    res.sendFile(process.cwd() + '/views/index.html');
+  });
 
-  console.log(req.body)
-  const url = req.body.url
-  const dnslookup = dns.lookup(urlparser.parse(URL).hostname,async (error, address) => {
-    if (!address){
-      res.json({error: "Invalid URL"})
-    } else {
-      const urlCount = await urls.countDocuments({})
-      const urlDoc = {
-        url,
-        short_url: urlCount
+  // POST create short URL
+  app.post('/api/shorturl', async (req, res) => {
+    const url = req.body.url;
+
+    // Validación estilo freeCodeCamp
+    if (!/^https?:\/\/.+/i.test(url)) {
+      return res.json({ error: "invalid url" });
     }
-    const result = await urls.insertOne(urlDoc)
-    console.log(result);
-    res.json({ original_url: url, short_url: urlCount})
-   }
-  })
-});
 
-app.get("/api/shorturl/:short_url", async (req, res) => {
-  const shorturl = req.params.short_url
-  const urlDoc = await urls.findOne({ short_url: + shorturl })
-  res.redirect(urlDoc.url)
-})
+    // Validar que el dominio exista
+    const hostname = new URL(url).hostname;
 
-app.listen(port, function() {
-  console.log(`Listening on port ${port}`);
-});
+
+    dns.lookup(hostname, async (err, address) => {
+      if (err || !address) {
+        return res.json({ error: "invalid url" });
+      }
+
+      // Buscar si ya existe
+      const existing = await urls.findOne({ url });
+      if (existing) {
+        return res.json({
+          original_url: existing.url,
+          short_url: existing.short_url
+        });
+      }
+
+      // Nuevo short_url incremental
+      const count = await urls.countDocuments({});
+      const newShort = count + 1;
+
+      const doc = {
+        url,
+        short_url: newShort
+      };
+
+      await urls.insertOne(doc);
+
+      res.json({
+        original_url: url,
+        short_url: newShort
+      });
+    });
+  });
+
+  // GET redirect
+  app.get("/api/shorturl/:short_url", async (req, res) => {
+    const shorturl = parseInt(req.params.short_url, 10);
+    const urlDoc = await urls.findOne({ short_url: shorturl });
+
+    if (!urlDoc) return res.json({ error: "No URL found" });
+
+    res.redirect(urlDoc.url);
+  });
+
+  app.listen(port, () => {
+    console.log(`Listening on port ${port}`);
+  });
+}
+
+main();
+
+ 

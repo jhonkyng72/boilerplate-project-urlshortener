@@ -1,6 +1,5 @@
 {
   "name": "shorturl",
-  "author": "Jhon Sanchez",
   "version": "1.0.0",
   "description": "API project for freeCodeCamp",
   "main": "index.js",
